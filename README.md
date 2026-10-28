@@ -1,0 +1,98 @@
+# 観測練習用の注文受付アプリ
+
+この小さなアプリは、成功・入力エラー・処理エラー・短い意図的な遅延を実際に起こし、Lambdaの実行ログを読む練習に使います。HTTP endpointはIAM認証必須です。匿名の利用者は呼び出せず、APIの本文に個人情報や秘密情報を入れないでください。
+
+## 作成するものと費用
+
+CloudFormation stackはLambda関数、IAM実行role、3日保持のCloudWatch Logs log group、IAM認証付きLambda Function URLを作ります。データベース、外部接続、顧客データ保存はありません。Function URLはHTTP API Gatewayを経由しません。
+
+Lambdaの呼び出し回数・実行時間とCloudWatch Logsの取り込み/保存には利用量に応じた料金が発生する場合があります。Function URL自体にはendpoint追加料金はありません。料金はRegion、無料利用枠、利用量、ログ量などで変わるため、この演習でも固定金額は保証できません。実行前に[AWS Lambda料金](https://aws.amazon.com/lambda/pricing/)と[CloudWatch料金](https://aws.amazon.com/cloudwatch/pricing/)で東京Regionの料金を確認し、必要ならAWS Pricing Calculatorで演習回数と保持量を仮定して見積もってください。Cost Explorerで利用後の実額を確認します。連続実行や大量ログ出力は避け、演習終了後すぐstackを削除してください。
+
+## 必要な権限と前提
+
+AWS CloudShellを使います。AWS CLI v2、Python 3、boto3/botocoreが必要です（CloudShellに含まれます）。アカウント所有者の管理権限で普段の演習をしないでください。CloudFormation stackの作成/更新/削除、Lambda関数とFunction URLの作成/削除、IAM role作成と`iam:PassRole`、CloudWatch Logs log group作成/書き込み/参照、AWS STS caller identity確認が必要です。関数URLを呼び出す利用者identityには、対象関数ARNへの`lambda:InvokeFunctionUrl`と`lambda:InvokeFunction`の両方が必要です。Function URL自体にはresource policyを付けず、同一アカウントの利用者側identity policyで許可します。詳しくは[AWSのFunction URL認証仕様](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html)を確認してください。IAM権限境界や組織ポリシーで許可されない場合は管理者へ相談し、制限を回避しないでください。
+
+CloudShellのRegionを東京（`ap-northeast-1`）に設定します。AWS実行とcleanupの検証を完了した公開後に、GitHub上の固定release tagとREADME URLを案内します。このcandidateはまだ検証前なのでrelease tagを指定していません。Course教材には検証済みのexact tagまたはcommit SHAを記録してください。
+
+```bash
+export AWS_REGION=ap-northeast-1
+git clone https://github.com/toma1110/aws-observability-sample-app.git
+cd aws-observability-sample-app
+aws sts get-caller-identity
+aws configure get region
+```
+
+表示されたアカウントとRegionが自分の演習対象であることを確認します。違っていたら先へ進まずCloudShell設定を直してください。stack名は英字から始まる3〜31文字の値にし、複数の受講者で共有するアカウントでは自分固有のsuffixを付けます。deploy/cleanupとも`STACK_NAME`を必須とし、stack所有tagが一致しない既存stackは変更・削除しません。
+
+## デプロイ
+
+```bash
+export STACK_NAME=observability-sample-learner1
+./deploy.sh
+```
+
+出力されたFunctionUrlを環境変数に保存します。呼び出しidentityには対象関数ARNへの`lambda:InvokeFunctionUrl`と`lambda:InvokeFunction`の両方が必要です。二つ目はFunction URL経由だけに絞る例です。
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {"Effect":"Allow","Action":"lambda:InvokeFunctionUrl","Resource":"arn:aws:lambda:ap-northeast-1:ACCOUNT_ID:function:STACK_NAME"},
+    {"Effect":"Allow","Action":"lambda:InvokeFunction","Resource":"arn:aws:lambda:ap-northeast-1:ACCOUNT_ID:function:STACK_NAME","Condition":{"Bool":{"lambda:InvokedViaFunctionUrl":"true"}}}
+  ]
+}
+```
+
+```bash
+export FUNCTION_URL="$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query "Stacks[0].Outputs[?OutputKey=='FunctionUrl'].OutputValue" --output text)"
+printf '%s\n' "$FUNCTION_URL"
+```
+
+deployは`app.py`をCloudFormationの`Code.ZipFile`へ埋め込んだtemplateを生成してstackを作ります。Function URLはAWS_IAM認証で、URLを知っているだけでは呼び出せません。認証には現在のCloudShell identityが使われます。
+
+## 操作して実ログを採取
+
+次のscriptは正常注文、quantity 0の入力エラー、教材用の故障注入、1.5秒の上限内sleepを各1回実行します。各HTTP responseのrequestIdでCloudWatch Logsから該当するアプリJSON logを検索し、対にして表示します。CloudWatch Logsの読み取り権限も必要です。
+
+```bash
+python3 run_scenarios.py "$FUNCTION_URL" | tee run-evidence.txt
+```
+
+期待されるHTTP statusは順に`200`、`400`、`500`、`200`です。正常注文は`SKU-RED-01`を数量2で受け付け、合計1000を返します。quantity 0は実際の入力検証で`validation_error`になります。failureだけが説明用故障注入で`internal_error`を返し、内部の例外文字列はレスポンスへ出しません。delayは注文処理の前に最大3000msの`time.sleep`を行います。1.5秒指定時の`durationMs`は通常処理より約1500ms長くなりますが、起動時間等も加わります。
+
+Function名とlog group名はstack名と同じです。上のscriptはHTTP操作と同一runのアプリJSON logを表示してファイルに保存します。Lambdaの`START`/`END`/`REPORT`行はアプリJSON eventとは別のplatform logです。scriptはrequestIdで該当する`event=request_complete`のアプリJSONを照合します。
+
+```bash
+python3 invoke.py "$FUNCTION_URL" '{"sku":"SKU-BLUE-02","quantity":1}'
+aws logs tail "/aws/lambda/$STACK_NAME" --since 10m | tee recent-lambda-logs.txt
+```
+
+各requestには次のような構造化イベントが出ます。次は形式を説明する例で、実行結果ではありません。教材では上の手順で採取した`run-logs.jsonl`と同じ操作のHTTP出力を使い、合成例を実ログとして扱わないでください。
+
+```json
+{"event":"request_complete","requestId":"Lambdaが割り当てたID","status":200,"durationMs":12.34,"error":null}
+```
+
+`status`、`durationMs`、`error`を比較します。失敗ケースでerrorに出るのは例外型だけで、入力内容やsecretは記録しません。期待値と違う場合は`aws cloudformation describe-stacks`でstack状態、`aws lambda get-function-url-config`でURL認証方式、CloudWatch Logsで同じrequestIdの実行を確認します。認証エラー時はCloudShellのidentityとRegionを確認し、URLを公開認証へ変えないでください。
+
+## 削除と残存確認
+
+演習後はすぐ削除します。CloudFormationが管理するLambda、Function URL、IAM role、log groupをstackごと削除します。
+
+```bash
+./cleanup.sh
+aws cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE DELETE_FAILED
+aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/$STACK_NAME"
+```
+
+`cleanup.sh`はstack削除完了後、stack、Lambda関数、Function URL、IAM role、完全一致するlog groupが存在しないことをAPIで確認します。AccessDeniedなどのエラーは「存在しない」と扱わず失敗として停止します。削除失敗時はCloudFormationのEventsで失敗resourceを調べ、原因を修正して同じstackを削除し直します。手動削除で別のstackやresourceを触らないでください。ログを保存した場合は必要な学習記録を残した後、自分のCloudShellファイルからも削除します。
+
+## Courseで使う場合
+
+Course側はアプリを複製せず、公開された固定tag、READMEのURL、受講者が採取した実ログを参照します。実行環境、必要権限、Region、対象操作、期待するログ項目、cleanup完了をCourseの手順に明記してください。教材にログを載せる場合は同じrunの操作とrequestIdを対応させ、個人情報、アカウントID、credentialを含めません。Course専用のAI支援PoCや比較評価は各Course側の責務です。
+
+## 動作確認
+
+```bash
+python3 -m unittest -v
+```
