@@ -12,11 +12,11 @@ Lambdaの呼び出し回数・実行時間とCloudWatch Logsの取り込み/保�
 
 AWS CloudShellを使います。AWS CLI v2、Python 3、boto3/botocoreが必要です（CloudShellに含まれます）。アカウント所有者の管理権限で普段の演習をしないでください。CloudFormation stackの作成/更新/削除、Lambda関数とFunction URLの作成/削除、IAM role作成と`iam:PassRole`、CloudWatch Logs log group作成/書き込み/参照、AWS STS caller identity確認が必要です。関数URLを呼び出す利用者identityには、対象関数ARNへの`lambda:InvokeFunctionUrl`と`lambda:InvokeFunction`の両方が必要です。Function URL自体にはresource policyを付けず、同一アカウントの利用者側identity policyで許可します。詳しくは[AWSのFunction URL認証仕様](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html)を確認してください。IAM権限境界や組織ポリシーで許可されない場合は管理者へ相談し、制限を回避しないでください。
 
-CloudShellのRegionを東京（`ap-northeast-1`）に設定します。受講者教材では固定tag `v1.0.0` を取得します。mainの最新内容をそのまま使わず、Course教材にもこのtagとREADME URLを記録してください。
+CloudShellのRegionを東京（`ap-northeast-1`）に設定します。受講者教材では固定tag `v1.0.1` を取得します。mainの最新内容をそのまま使わず、Course教材にもこのtagとREADME URLを記録してください。
 
 ```bash
 export AWS_REGION=ap-northeast-1
-git clone --branch v1.0.0 --depth 1 https://github.com/toma1110/aws-observability-sample-app.git
+git clone --branch v1.0.1 --depth 1 https://github.com/toma1110/aws-observability-sample-app.git
 cd aws-observability-sample-app
 aws sts get-caller-identity
 aws configure get region
@@ -52,7 +52,7 @@ deployは`app.py`をCloudFormationの`Code.ZipFile`へ埋め込んだtemplateを
 
 ## 検証した動作
 
-2026-10-28に東京Region（`ap-northeast-1`）で検証しました。LambdaはPython 3.12、128 MB、timeout 8秒、Function URLは`AWS_IAM`認証です。正常注文、quantity 0の入力エラー、教材用のfailure注入、1.5秒delayを各1回実行し、HTTP statusは順に`200`、`400`、`500`、`200`でした。アプリがPython `perf_counter`で記録したhandler処理時間（`durationMs`）は約`0.10 ms`、`0.08 ms`、`0.08 ms`、`1500.29 ms`でした。この値はLambdaの課金対象時間や`REPORT`行のdurationとは異なります。各レスポンスとCloudWatch Logsの`request_complete` eventは、同じ`requestId`で4件すべて照合しました。採取した同一runの証跡file SHA-256は`0c46e062be9191d0a31752a8fffa03af49fda5056e8f63d61f2941de14af6e97`です。これは一回の検証結果であり、実行環境によってdurationは変わります。
+2026-10-28に東京Region（`ap-northeast-1`）で検証しました。LambdaはPython 3.12、128 MB、timeout 8秒、Function URLは`AWS_IAM`認証です。正常注文、quantity 0の入力エラー、教材用のfailure注入、1.5秒delayを各1回実行し、HTTP statusは順に`200`、`400`、`500`、`200`でした。アプリがPython `perf_counter`で記録したhandler処理時間（`durationMs`）は約`0.10 ms`、`0.08 ms`、`0.08 ms`、`1500.29 ms`でした。この値はLambdaの課金対象時間や`REPORT`行のdurationとは異なります。各レスポンスとCloudWatch Logsの`request_complete` eventは、同じ`requestId`で4件すべて照合しました。採取した同一runの証跡file SHA-256は`0c46e062be9191d0a31752a8fffa03af49fda5056e8f63d61f2941de14af6e97`です。R2 cleanup後にCloudFormation stack、Lambda関数、Function URL、IAM role、log groupが存在しないことも確認しました。これは一回の検証結果であり、実行環境によってdurationは変わります。
 
 ## 操作して実ログを採取
 
@@ -62,9 +62,9 @@ deployは`app.py`をCloudFormationの`Code.ZipFile`へ埋め込んだtemplateを
 python3 run_scenarios.py "$FUNCTION_URL" | tee run-evidence.txt
 ```
 
-期待されるHTTP statusは順に`200`、`400`、`500`、`200`です。正常注文は`SKU-RED-01`を数量2で受け付け、合計1000を返します。quantity 0は実際の入力検証で`validation_error`になります。failureだけが説明用故障注入で`internal_error`を返し、内部の例外文字列はレスポンスへ出しません。delayは注文処理の前に最大3000msの`time.sleep`を行います。1.5秒指定時の`durationMs`は通常処理より約1500ms長くなりますが、起動時間等も加わります。
+期待されるHTTP statusは順に`200`、`400`、`500`、`200`です。正常注文は`SKU-RED-01`を数量2で受け付け、合計1000を返します。quantity 0は実際の入力検証で`validation_error`になります。failureだけが説明用故障注入で`internal_error`を返し、内部の例外文字列はレスポンスへ出しません。delayは注文処理の前に最大3000msの`time.sleep`を行います。処理時間には入力検証等も含みますが、Lambdaの初期化時間は含みません。
 
-Function名とlog group名はstack名と同じです。上のscriptはHTTP操作と同一runのアプリJSON logを表示してファイルに保存します。Lambdaの`START`/`END`/`REPORT`行はアプリJSON eventとは別のplatform logです。scriptはrequestIdで該当する`event=request_complete`のアプリJSONを照合します。
+Lambda function名はstack名と同じで、log group名は`/aws/lambda/<stack名>`です。上のscriptはHTTP操作と同一runのアプリJSON logを表示してファイルに保存します。Lambdaの`START`/`END`/`REPORT`行はアプリJSON eventとは別のplatform logです。scriptはrequestIdで該当する`event=request_complete`のアプリJSONを照合します。
 
 ```bash
 python3 invoke.py "$FUNCTION_URL" '{"sku":"SKU-BLUE-02","quantity":1}'
@@ -95,7 +95,7 @@ aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/$STACK_NAME"
 
 既存Courseでアプリのclone、実装、デプロイをCourse内に置いていた場合は、次の形へ移行します。
 
-1. Course独自アプリの再実装を止め、このREADMEの固定tag `v1.0.0`と実行・IAM・費用・cleanup手順へ置き換えます。
+1. Course独自アプリの再実装を止め、このREADMEの固定tag `v1.0.1`と実行・IAM・費用・cleanup手順へ置き換えます。
 2. 受講者に正常、入力エラー、故障注入、delayを実行してもらい、各操作のrequest input・HTTP response・同一`requestId`の実ログを採取します。
 3. 共通アプリとAWS構築の実装はこのrepositoryで管理し、Course固有のPoC、比較、判断やログ解釈をCourse側で進めます。実操作から採取したrequest input、HTTP response、`requestId`、対応するCloudWatch logをセットで教材に引用・保存できます。合成例を実ログとして扱わず、個人情報、アカウントID、credentialは含めないでください。
 
