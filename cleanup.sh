@@ -23,6 +23,6 @@ check_missing() {
 check_missing "Lambda function" aws lambda get-function --function-name "$FUNCTION" --region "$REGION"
 check_missing "Function URL" aws lambda get-function-url-config --function-name "$FUNCTION" --region "$REGION"
 check_missing "IAM role" aws iam get-role --role-name "$ROLE"
-GROUPS="$(aws logs describe-log-groups --log-group-name-prefix "$LOG_GROUP" --region "$REGION" --output json)"
-python3 -c 'import json,sys; n=sys.argv[1]; sys.exit(1 if any(x["logGroupName"]==n for x in json.load(sys.stdin)["logGroups"]) else 0)' "$LOG_GROUP" <<<"$GROUPS" || { echo "CloudWatch log group still exists: $LOG_GROUP" >&2; exit 1; }
+LOG_GROUPS_JSON="$(aws logs describe-log-groups --log-group-name-prefix "$LOG_GROUP" --region "$REGION" --output json)"
+python3 -c 'import json,sys; n=sys.argv[1]; sys.exit(1 if any(x["logGroupName"]==n for x in json.load(sys.stdin)["logGroups"]) else 0)' "$LOG_GROUP" <<<"$LOG_GROUPS_JSON" || { echo "CloudWatch log group still exists: $LOG_GROUP" >&2; exit 1; }
 echo "Deleted stack and confirmed exact Lambda function, Function URL, IAM role, and log group are absent."
