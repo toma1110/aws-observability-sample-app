@@ -12,11 +12,11 @@ Lambdaの呼び出し回数・実行時間とCloudWatch Logsの取り込み/保�
 
 AWS CloudShellを使います。AWS CLI v2、Python 3、boto3/botocoreが必要です（CloudShellに含まれます）。アカウント所有者の管理権限で普段の演習をしないでください。CloudFormation stackの作成/更新/削除、Lambda関数とFunction URLの作成/削除、IAM role作成と`iam:PassRole`、CloudWatch Logs log group作成/書き込み/参照、AWS STS caller identity確認が必要です。関数URLを呼び出す利用者identityには、対象関数ARNへの`lambda:InvokeFunctionUrl`と`lambda:InvokeFunction`の両方が必要です。Function URL自体にはresource policyを付けず、同一アカウントの利用者側identity policyで許可します。詳しくは[AWSのFunction URL認証仕様](https://docs.aws.amazon.com/lambda/latest/dg/urls-auth.html)を確認してください。IAM権限境界や組織ポリシーで許可されない場合は管理者へ相談し、制限を回避しないでください。
 
-CloudShellのRegionを東京（`ap-northeast-1`）に設定します。AWS実行とcleanupの検証を完了した公開後に、GitHub上の固定release tagとREADME URLを案内します。このcandidateはまだ検証前なのでrelease tagを指定していません。Course教材には検証済みのexact tagまたはcommit SHAを記録してください。
+CloudShellのRegionを東京（`ap-northeast-1`）に設定します。受講者教材では固定tag `v1.0.0` を取得します。mainの最新内容をそのまま使わず、Course教材にもこのtagとREADME URLを記録してください。
 
 ```bash
 export AWS_REGION=ap-northeast-1
-git clone https://github.com/toma1110/aws-observability-sample-app.git
+git clone --branch v1.0.0 --depth 1 https://github.com/toma1110/aws-observability-sample-app.git
 cd aws-observability-sample-app
 aws sts get-caller-identity
 aws configure get region
@@ -49,6 +49,10 @@ printf '%s\n' "$FUNCTION_URL"
 ```
 
 deployは`app.py`をCloudFormationの`Code.ZipFile`へ埋め込んだtemplateを生成してstackを作ります。Function URLはAWS_IAM認証で、URLを知っているだけでは呼び出せません。認証には現在のCloudShell identityが使われます。
+
+## 検証した動作
+
+2026-10-28に東京Region（`ap-northeast-1`）で検証しました。LambdaはPython 3.12、128 MB、timeout 8秒、Function URLは`AWS_IAM`認証です。正常注文、quantity 0の入力エラー、教材用のfailure注入、1.5秒delayを各1回実行し、HTTP statusは順に`200`、`400`、`500`、`200`でした。Lambdaのdurationは約`0.10 ms`、`0.08 ms`、`0.08 ms`、`1500.29 ms`でした。各レスポンスとCloudWatch Logsの`request_complete` eventは、同じ`requestId`で4件すべて照合しました。採取した同一runの証跡file SHA-256は`0c46e062be9191d0a31752a8fffa03af49fda5056e8f63d61f2941de14af6e97`です。これは一回の検証結果であり、実行環境によってdurationは変わります。
 
 ## 操作して実ログを採取
 
@@ -89,7 +93,13 @@ aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/$STACK_NAME"
 
 ## Courseで使う場合
 
-Course側はアプリを複製せず、公開された固定tag、READMEのURL、受講者が採取した実ログを参照します。実行環境、必要権限、Region、対象操作、期待するログ項目、cleanup完了をCourseの手順に明記してください。教材にログを載せる場合は同じrunの操作とrequestIdを対応させ、個人情報、アカウントID、credentialを含めません。Course専用のAI支援PoCや比較評価は各Course側の責務です。
+既存Courseでアプリのclone、実装、デプロイをCourse内に置いていた場合は、次の形へ移行します。
+
+1. Course独自アプリの再実装を止め、このREADMEの固定tag `v1.0.0`と実行・IAM・費用・cleanup手順へ置き換えます。
+2. 受講者に正常、入力エラー、故障注入、delayを実行してもらい、各操作のrequest input・HTTP response・同一`requestId`の実ログを採取します。
+3. Course固有のPoC、比較、判断やログ解釈をCourse側で進めます。共通アプリ、AWS構築、実ログをCourse内へ複製しません。
+
+Courseの手順には実行環境、必要権限、Region、対象操作、期待するログ項目、cleanup完了を明記してください。教材にログを載せる場合は同じrunの操作とrequestIdを対応させ、個人情報、アカウントID、credentialを含めません。Course専用のAI支援PoCや比較評価は各Course側の責務です。
 
 ## 動作確認
 
