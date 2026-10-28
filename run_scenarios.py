@@ -59,6 +59,9 @@ for label, body in scenarios:
         status, result = exc.code, json.loads(exc.read() or b"{}")
     request_id = result.get("requestId")
     print(f"\n=== {label}: HTTP {status} ===")
+    print("Request input:")
+    print(json.dumps(body, ensure_ascii=False))
+    print("HTTP response:")
     print(json.dumps(result, ensure_ascii=False))
     if not request_id:
         raise SystemExit("Response had no requestId; stop and investigate before continuing")
