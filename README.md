@@ -52,7 +52,7 @@ deployは`app.py`をCloudFormationの`Code.ZipFile`へ埋め込んだtemplateを
 
 ## 検証した動作
 
-2026-10-28に東京Region（`ap-northeast-1`）で検証しました。LambdaはPython 3.12、128 MB、timeout 8秒、Function URLは`AWS_IAM`認証です。正常注文、quantity 0の入力エラー、教材用のfailure注入、1.5秒delayを各1回実行し、HTTP statusは順に`200`、`400`、`500`、`200`でした。Lambdaのdurationは約`0.10 ms`、`0.08 ms`、`0.08 ms`、`1500.29 ms`でした。各レスポンスとCloudWatch Logsの`request_complete` eventは、同じ`requestId`で4件すべて照合しました。採取した同一runの証跡file SHA-256は`0c46e062be9191d0a31752a8fffa03af49fda5056e8f63d61f2941de14af6e97`です。これは一回の検証結果であり、実行環境によってdurationは変わります。
+2026-10-28に東京Region（`ap-northeast-1`）で検証しました。LambdaはPython 3.12、128 MB、timeout 8秒、Function URLは`AWS_IAM`認証です。正常注文、quantity 0の入力エラー、教材用のfailure注入、1.5秒delayを各1回実行し、HTTP statusは順に`200`、`400`、`500`、`200`でした。アプリがPython `perf_counter`で記録したhandler処理時間（`durationMs`）は約`0.10 ms`、`0.08 ms`、`0.08 ms`、`1500.29 ms`でした。この値はLambdaの課金対象時間や`REPORT`行のdurationとは異なります。各レスポンスとCloudWatch Logsの`request_complete` eventは、同じ`requestId`で4件すべて照合しました。採取した同一runの証跡file SHA-256は`0c46e062be9191d0a31752a8fffa03af49fda5056e8f63d61f2941de14af6e97`です。これは一回の検証結果であり、実行環境によってdurationは変わります。
 
 ## 操作して実ログを採取
 
@@ -97,9 +97,9 @@ aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/$STACK_NAME"
 
 1. Course独自アプリの再実装を止め、このREADMEの固定tag `v1.0.0`と実行・IAM・費用・cleanup手順へ置き換えます。
 2. 受講者に正常、入力エラー、故障注入、delayを実行してもらい、各操作のrequest input・HTTP response・同一`requestId`の実ログを採取します。
-3. Course固有のPoC、比較、判断やログ解釈をCourse側で進めます。共通アプリ、AWS構築、実ログをCourse内へ複製しません。
+3. 共通アプリとAWS構築の実装はこのrepositoryで管理し、Course固有のPoC、比較、判断やログ解釈をCourse側で進めます。実操作から採取したrequest input、HTTP response、`requestId`、対応するCloudWatch logをセットで教材に引用・保存できます。合成例を実ログとして扱わず、個人情報、アカウントID、credentialは含めないでください。
 
-Courseの手順には実行環境、必要権限、Region、対象操作、期待するログ項目、cleanup完了を明記してください。教材にログを載せる場合は同じrunの操作とrequestIdを対応させ、個人情報、アカウントID、credentialを含めません。Course専用のAI支援PoCや比較評価は各Course側の責務です。
+Courseの手順には実行環境、必要権限、Region、対象操作、期待するログ項目、cleanup完了を明記してください。Course専用のAI支援PoCや比較評価は各Course側の責務です。
 
 ## 動作確認
 
