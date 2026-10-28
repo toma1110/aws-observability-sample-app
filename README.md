@@ -52,7 +52,7 @@ deployは`app.py`をCloudFormationの`Code.ZipFile`へ埋め込んだtemplateを
 
 ## 検証した動作
 
-2026-10-28に東京Region（`ap-northeast-1`）で検証しました。LambdaはPython 3.12、128 MB、timeout 8秒、Function URLは`AWS_IAM`認証です。正常注文、quantity 0の入力エラー、教材用のfailure注入、1.5秒delayを各1回実行し、HTTP statusは順に`200`、`400`、`500`、`200`でした。アプリがPython `perf_counter`で記録したhandler処理時間（`durationMs`）は約`0.10 ms`、`0.08 ms`、`0.08 ms`、`1500.29 ms`でした。この値はLambdaの課金対象時間や`REPORT`行のdurationとは異なります。各レスポンスとCloudWatch Logsの`request_complete` eventは、同じ`requestId`で4件すべて照合しました。採取した同一runの証跡file SHA-256は`0c46e062be9191d0a31752a8fffa03af49fda5056e8f63d61f2941de14af6e97`です。R2 cleanup後にCloudFormation stack、Lambda関数、Function URL、IAM role、log groupが存在しないことも確認しました。これは一回の検証結果であり、実行環境によってdurationは変わります。
+2026-10-28に東京Region（`ap-northeast-1`）で検証しました。LambdaはPython 3.12、128 MB、timeout 8秒、Function URLは`AWS_IAM`認証です。正常注文、quantity 0の入力エラー、教材用のfailure注入、1.5秒delayを各1回実行し、HTTP statusは順に`200`、`400`、`500`、`200`でした。アプリがPython `perf_counter`で記録したhandler処理時間（`durationMs`）は約`0.10 ms`、`0.08 ms`、`0.08 ms`、`1500.29 ms`でした。この値はLambdaの課金対象時間や`REPORT`行のdurationとは異なります。各レスポンスとCloudWatch Logsの`request_complete` eventは、同じ`requestId`で4件すべて照合しました。採取した同一runの証跡file SHA-256は`0c46e062be9191d0a31752a8fffa03af49fda5056e8f63d61f2941de14af6e97`です。演習後の削除手順を実行し、CloudFormation stack、Lambda関数、Function URL、IAM role、log groupが存在しないことも確認しました。これは一回の検証結果であり、実行環境によってdurationは変わります。
 
 ## 操作して実ログを採取
 
