@@ -71,7 +71,7 @@ for label, body in scenarios:
         token = None
         seen_tokens = set()
         for _ in range(20):
-            args = {"logGroupName": log_group, "filterPattern": request_id, "limit": 100}
+            args = {"logGroupName": log_group, "filterPattern": f'"{request_id}"', "limit": 100}
             if token:
                 args["nextToken"] = token
             page = logs.filter_log_events(**args)
