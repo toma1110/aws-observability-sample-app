@@ -1,4 +1,6 @@
 __pycache__/
 *.py[cod]
 run-logs.jsonl
+run-evidence.txt
+recent-lambda-logs.txt
 .venv/

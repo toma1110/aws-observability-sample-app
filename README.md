@@ -67,7 +67,7 @@ python3 invoke.py "$FUNCTION_URL" '{"sku":"SKU-BLUE-02","quantity":1}'
 aws logs tail "/aws/lambda/$STACK_NAME" --since 10m | tee recent-lambda-logs.txt
 ```
 
-各requestには次のような構造化イベントが出ます。次は形式を説明する例で、実行結果ではありません。教材では上の手順で採取した`run-logs.jsonl`と同じ操作のHTTP出力を使い、合成例を実ログとして扱わないでください。
+各requestには次のような構造化イベントが出ます。次は形式を説明する例で、実行結果ではありません。教材では上の手順で採取した`run-evidence.txt`内の実HTTP出力と同じrunのlogを使い、合成例を実ログとして扱わないでください。
 
 ```json
 {"event":"request_complete","requestId":"Lambdaが割り当てたID","status":200,"durationMs":12.34,"error":null}

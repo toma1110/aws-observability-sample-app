@@ -62,21 +62,29 @@ for label, body in scenarios:
     print(json.dumps(result, ensure_ascii=False))
     if not request_id:
         raise SystemExit("Response had no requestId; stop and investigate before continuing")
-    matched = []
-    for _ in range(12):
-        page = logs.filter_log_events(logGroupName=log_group, filterPattern=request_id, limit=100)
-        matched = [event for event in page.get("events", []) if request_id in event.get("message", "")]
-        if matched:
-            break
-        time.sleep(2)
     app_logs = []
-    for event in matched:
-        try:
-            value = json.loads(event["message"])
-        except json.JSONDecodeError:
-            continue
-        if value.get("event") == "request_complete" and value.get("requestId") == request_id:
-            app_logs.append(value)
+    deadline = time.monotonic() + 40
+    while time.monotonic() < deadline and not app_logs:
+        token = None
+        seen_tokens = set()
+        for _ in range(20):
+            args = {"logGroupName": log_group, "filterPattern": request_id, "limit": 100}
+            if token:
+                args["nextToken"] = token
+            page = logs.filter_log_events(**args)
+            for event in page.get("events", []):
+                try:
+                    value = json.loads(event["message"])
+                except json.JSONDecodeError:
+                    continue
+                if value.get("event") == "request_complete" and value.get("requestId") == request_id:
+                    app_logs.append(value)
+            token = page.get("nextToken")
+            if not token or token in seen_tokens or app_logs:
+                break
+            seen_tokens.add(token)
+        if not app_logs:
+            time.sleep(2)
     if len(app_logs) != 1:
         raise SystemExit(f"Expected one app JSON log for {request_id}; found {len(app_logs)}. Check Lambda START/END/REPORT separately.")
     print("Matching CloudWatch app JSON log:")
