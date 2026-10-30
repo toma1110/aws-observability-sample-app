@@ -1,9 +1,11 @@
 {
+  "provenance": "actual",
   "request_id": "",
   "query": "",
   "started_at": "",
   "completed_at": "",
   "findings": "",
   "evidence_request_ids": [],
-  "uncertainty": ""
+  "uncertainty": "",
+  "illustrative_duration": null
 }

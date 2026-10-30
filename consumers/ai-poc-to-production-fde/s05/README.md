@@ -70,6 +70,17 @@ nano human-investigation.json
 
 `request_id`と`evidence_request_ids`には表示された実際の`requestId`を入れ、`query`にはそのJSONだけに答える問いを書きます。`started_at`と`completed_at`にはタイムゾーン付きの実時刻を入れ、`findings`と`uncertainty`には自分の調査結果と残る不明点を書きます。Bedrockを呼ぶ前にこの記録を保存してください。人の調査内容やシナリオ名はBedrockへ送信されず、AI toolには同じJSONログ1件と同じ問いだけが渡ります。
 
+### 講師用の想定例
+
+Course ownerの指示で教材用に想定例を使う場合は、実際の人の調査結果として扱わず、調査時間も記録しません。次の例はログ1件と問いを固定したまま、由来を`hypothetical`として明示します。consumerはこのmodeでIssueの固定問いとの完全一致を確認し、問いを変えた例を拒否します。受講者の`actual` modeでは自分が調べる問いを記録できます。
+
+```bash
+cp hypothetical-investigation.example.json human-investigation.json
+python3 investigate.py --validate-only
+```
+
+例の`started_at`/`completed_at`は`null`です。架空の日時や実測時間欄を作らず、想定所要時間は`illustrative_duration`へ「教材用の想定」と明記して分けます。例では「3分程度」としています。結果JSONには`baseline_provenance: hypothetical`と`human_investigation_duration_ms: null`が残ります。想定例の所見と想定時間はAIへ送信せず、AIには通常modeと同じ問いと対象JSONログ1件だけを渡します。実測modeではテンプレートの`provenance: actual`を維持し、実際の開始・終了時刻を記録します。想定時間と実測値から短縮率を出すことはできません。
+
 記録が現在の実行ログと対応するかを確認します。このコマンドはBedrockを呼びません。
 
 ```bash
@@ -99,7 +110,7 @@ nano ai-review.json
 
 この確認記録と結果JSONは作業用です。公開前に残さず、必要な比較情報を講義用の成果物へ転記する場合も、実ログや実アカウント情報を公開しないでください。
 
-所要時間は次の3つを分けて記録します。人の調査時間は`human-investigation.json`の開始・完了時刻、BedrockのAPI応答時間は`ai-investigation-*.json`、AI回答を人が確認・修正した時間は`ai-review.json`の開始・完了時刻から得ます。API応答時間だけを人の作業時間や短縮時間と読み替えません。必要なら「AI支援の経過時間」をAPI応答時間と人の確認時間の合計として併記できますが、どの区間を足したか明記し、準備時間を含まない経過時間として扱います。人の作業時間や短縮を比較する場合は、両方で同じ作業範囲を実測した記録が揃うまで結論を出しません。
+所要時間は次の3つを分けて記録します。実測modeの人の調査時間は`human-investigation.json`の開始・完了時刻、BedrockのAPI応答時間は`ai-investigation-*.json`、AI回答を人が確認・修正した時間は`ai-review.json`の開始・完了時刻から得ます。想定modeには人の調査時間がありません。API応答時間だけを人の作業時間や短縮時間と読み替えず、想定例と実測値から短縮率を出しません。必要なら「AI支援の経過時間」をAPI応答時間と人の確認時間の合計として併記できますが、どの区間を足したか明記し、準備時間を含まない経過時間として扱います。
 
 ## Converseのtool-useだけを試す場合
 

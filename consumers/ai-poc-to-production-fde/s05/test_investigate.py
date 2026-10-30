@@ -39,6 +39,96 @@ def test_search_returns_only_selected_actual_record():
     assert investigate.search_run_logs("req-1", evidence) == {"app_log": evidence["success"]}
 
 
+def test_hypothetical_baseline_keeps_provenance_without_invented_time(tmp_path, monkeypatch):
+    human_path = tmp_path / "human-investigation.json"
+    evidence_path = tmp_path / "run-evidence.txt"
+    evidence_path.write_text(
+        '=== injected_failure: HTTP 500 ===\nMatching CloudWatch app JSON log:\n'
+        '{"event":"request_complete","requestId":"req-1","status":500,"durationMs":0.07}\n',
+        encoding="utf-8",
+    )
+    human_path.write_text(json.dumps({
+        "provenance": "hypothetical", "illustrative_duration": "【教材用の想定】3分程度（実測ではなく短縮率比較には使わない）", "request_id": "req-1", "query": investigate.HYPOTHETICAL_QUERY,
+        "started_at": None, "completed_at": None,
+        "findings": "【教材用の想定例】status 500", "evidence_request_ids": ["req-1"],
+        "uncertainty": "【教材用の想定例】cause unknown",
+    }), encoding="utf-8")
+    monkeypatch.setattr(investigate, "HUMAN_RECORD_PATH", human_path)
+    monkeypatch.setattr(investigate, "EVIDENCE_PATH", evidence_path)
+
+    human, duration_ms = investigate.load_human_record(human_path)
+
+    assert human["provenance"] == "hypothetical"
+    assert duration_ms is None
+
+
+def test_hypothetical_baseline_rejects_fabricated_timestamps(tmp_path, monkeypatch):
+    human_path = tmp_path / "human-investigation.json"
+    evidence_path = tmp_path / "run-evidence.txt"
+    evidence_path.write_text(
+        '=== injected_failure: HTTP 500 ===\nMatching CloudWatch app JSON log:\n'
+        '{"event":"request_complete","requestId":"req-1","status":500,"durationMs":0.07}\n',
+        encoding="utf-8",
+    )
+    human_path.write_text(json.dumps({
+        "provenance": "hypothetical", "illustrative_duration": "【教材用の想定】3分程度（実測ではなく短縮率比較には使わない）", "request_id": "req-1", "query": investigate.HYPOTHETICAL_QUERY,
+        "started_at": "2026-10-31T10:00:00+09:00", "completed_at": "2026-10-31T10:05:00+09:00",
+        "findings": "【教材用の想定例】status 500", "evidence_request_ids": ["req-1"],
+        "uncertainty": "【教材用の想定例】cause unknown",
+    }), encoding="utf-8")
+    monkeypatch.setattr(investigate, "HUMAN_RECORD_PATH", human_path)
+    monkeypatch.setattr(investigate, "EVIDENCE_PATH", evidence_path)
+
+    with pytest.raises(ValueError, match="null timestamps"):
+        investigate.load_human_record(human_path)
+
+
+def test_hypothetical_baseline_rejects_changed_question(tmp_path, monkeypatch):
+    human_path = tmp_path / "human-investigation.json"
+    evidence_path = tmp_path / "run-evidence.txt"
+    evidence_path.write_text(
+        '=== injected_failure: HTTP 500 ===\nMatching CloudWatch app JSON log:\n'
+        '{"event":"request_complete","requestId":"req-1","status":500,"durationMs":0.07}\n',
+        encoding="utf-8",
+    )
+    human_path.write_text(json.dumps({
+        "provenance": "hypothetical", "request_id": "req-1", "query": "a changed question",
+        "started_at": None, "completed_at": None,
+        "findings": "【教材用の想定例】status 500", "evidence_request_ids": ["req-1"],
+        "uncertainty": "【教材用の想定例】cause unknown",
+        "illustrative_duration": "【教材用の想定】3分程度（実測ではなく短縮率比較には使わない）",
+    }), encoding="utf-8")
+    monkeypatch.setattr(investigate, "HUMAN_RECORD_PATH", human_path)
+    monkeypatch.setattr(investigate, "EVIDENCE_PATH", evidence_path)
+
+    with pytest.raises(ValueError, match="fixed Issue 289 question"):
+        investigate.load_human_record(human_path)
+
+
+def test_actual_baseline_keeps_learner_question_open(tmp_path, monkeypatch):
+    human_path = tmp_path / "human-investigation.json"
+    evidence_path = tmp_path / "run-evidence.txt"
+    evidence_path.write_text(
+        '=== injected_failure: HTTP 500 ===\nMatching CloudWatch app JSON log:\n'
+        '{"event":"request_complete","requestId":"req-1","status":500,"durationMs":0.07}\n',
+        encoding="utf-8",
+    )
+    custom_question = "受講者が自分で選んだ問い"
+    human_path.write_text(json.dumps({
+        "provenance": "actual", "request_id": "req-1", "query": custom_question,
+        "started_at": "2026-10-31T10:00:00+09:00", "completed_at": "2026-10-31T10:05:00+09:00",
+        "findings": "Observed status 500", "evidence_request_ids": ["req-1"],
+        "uncertainty": "Cause unknown", "illustrative_duration": None,
+    }), encoding="utf-8")
+    monkeypatch.setattr(investigate, "HUMAN_RECORD_PATH", human_path)
+    monkeypatch.setattr(investigate, "EVIDENCE_PATH", evidence_path)
+
+    human, duration_ms = investigate.load_human_record(human_path)
+
+    assert human["query"] == custom_question
+    assert duration_ms == 300000
+
+
 def test_investigation_makes_two_calls_and_keeps_human_notes_out_of_prompts():
     first = {"stopReason": "tool_use", "output": {"message": {"role": "assistant", "content": [{
         "toolUse": {"toolUseId": "tool-1", "name": investigate.TOOL_NAME, "input": {"selection": "only"}}
@@ -49,8 +139,8 @@ def test_investigation_makes_two_calls_and_keeps_human_notes_out_of_prompts():
     def record_budget(*args, **kwargs):
         budget.append((args, kwargs))
     human = {
-        "request_id": "req-1", "query": "What does this log show?", "findings": "PRIVATE HUMAN NOTES",
-        "evidence_request_ids": ["req-1"], "uncertainty": "unknown", "started_at": "", "completed_at": "",
+        "provenance": "actual", "illustrative_duration": None, "request_id": "req-1", "query": "What does this log show?", "findings": "PRIVATE HUMAN NOTES",
+        "evidence_request_ids": ["req-1"], "uncertainty": "unknown", "started_at": "2026-10-31T10:00:00+09:00", "completed_at": "2026-10-31T10:05:00+09:00",
     }
     evidence = {"success": {"event": "request_complete", "requestId": "req-1", "status": 200, "durationMs": 12}}
     result = investigate.run_investigation(client, human, evidence, call_budget=record_budget)
@@ -61,11 +151,36 @@ def test_investigation_makes_two_calls_and_keeps_human_notes_out_of_prompts():
     assert client.calls[0]["toolConfig"]["toolChoice"] == {"tool": {"name": "search_run_logs"}}
     assert "toolChoice" not in client.calls[1]["toolConfig"]
     assert result["ai_answer"] == "Observed status 200; cause is not established."
+    assert result["baseline_provenance"] == "actual"
+    assert result["human_investigation_duration_ms"] == 300000
     assert "PRIVATE HUMAN NOTES" not in str(client.calls)
     assert "injected_failure" not in str(client.calls)
     assert result["first_response_usage"] == first["usage"]
     assert result["final_response_usage"] == final["usage"]
     assert result["tool_result"]["app_log"] == evidence["success"]
+
+
+def test_hypothetical_baseline_is_labeled_and_never_given_to_model():
+    first = {"stopReason": "tool_use", "output": {"message": {"content": [{
+        "toolUse": {"toolUseId": "tool-1", "name": investigate.TOOL_NAME, "input": {"selection": "only"}}
+    }]}}, "usage": {"inputTokens": 10, "outputTokens": 5}}
+    final = {"stopReason": "end_turn", "output": {"message": {"content": [{"text": "Observed status 500."}]}}, "usage": {"inputTokens": 20, "outputTokens": 8}}
+    client = FakeConverse([first, final])
+    human = {
+        "provenance": "hypothetical", "illustrative_duration": "【教材用の想定】3分程度（実測ではなく短縮率比較には使わない）", "request_id": "req-1", "query": investigate.HYPOTHETICAL_QUERY,
+        "findings": "【教材用の想定例】private baseline", "evidence_request_ids": ["req-1"],
+        "uncertainty": "【教材用の想定例】unknown", "started_at": None, "completed_at": None,
+    }
+    evidence = {"failure": {"event": "request_complete", "requestId": "req-1", "status": 500, "durationMs": 0.07}}
+
+    result = investigate.run_investigation(client, human, evidence, call_budget=lambda *args, **kwargs: None)
+
+    assert result["baseline_provenance"] == "hypothetical"
+    assert result["human_investigation_duration_ms"] is None
+    assert result["human_baseline"]["provenance"] == "hypothetical"
+    assert "no human investigation duration is measured" in result["note"]
+    assert "private baseline" not in str(client.calls)
+    assert "教材用の想定例" not in str(client.calls)
 
 
 def test_investigation_stops_on_wrong_tool_without_retry():
@@ -74,7 +189,7 @@ def test_investigation_stops_on_wrong_tool_without_retry():
     }]}}}
     client = FakeConverse([first])
     budget = []
-    human = {"request_id": "req-1", "query": "Question", "findings": "findings", "evidence_request_ids": ["req-1"], "uncertainty": "", "started_at": "", "completed_at": ""}
+    human = {"provenance": "actual", "illustrative_duration": None, "request_id": "req-1", "query": "Question", "findings": "findings", "evidence_request_ids": ["req-1"], "uncertainty": "", "started_at": "2026-10-31T10:00:00+09:00", "completed_at": "2026-10-31T10:05:00+09:00"}
     evidence = {"success": {"event": "request_complete", "requestId": "req-1", "status": 200, "durationMs": 12}}
     try:
         investigate.run_investigation(client, human, evidence, call_budget=lambda *args, **kwargs: budget.append((args, kwargs)))
@@ -149,7 +264,7 @@ def test_investigation_persists_first_response_usage_if_final_call_fails(tmp_pat
     }]}}, "usage": {"inputTokens": 10, "outputTokens": 5}}
     client = FakeConverse([first, RuntimeError("final request failed")])
     output_path = tmp_path / "ai-investigation-req-1.json"
-    human = {"request_id": "req-1", "query": "Question", "findings": "findings", "evidence_request_ids": ["req-1"], "uncertainty": "", "started_at": "", "completed_at": ""}
+    human = {"provenance": "actual", "illustrative_duration": None, "request_id": "req-1", "query": "Question", "findings": "findings", "evidence_request_ids": ["req-1"], "uncertainty": "", "started_at": "2026-10-31T10:00:00+09:00", "completed_at": "2026-10-31T10:05:00+09:00"}
     evidence = {"success": {"event": "request_complete", "requestId": "req-1", "status": 200, "durationMs": 12}}
     try:
         investigate.run_investigation(client, human, evidence, call_budget=lambda *args, **kwargs: None, output_path=output_path)
@@ -182,7 +297,7 @@ def test_final_response_is_completed_only_with_end_turn_and_nonempty_text(
         first = {"stopReason": "tool_use", "output": {"message": {"content": [{
             "toolUse": {"toolUseId": "tool-1", "name": investigate.TOOL_NAME, "input": {"selection": "only"}}
         }] }}, "usage": {"inputTokens": 10, "outputTokens": 5}}
-        human = {"request_id": "req-1", "query": "Question", "findings": "findings", "evidence_request_ids": ["req-1"], "uncertainty": "", "started_at": "", "completed_at": ""}
+        human = {"provenance": "actual", "illustrative_duration": None, "request_id": "req-1", "query": "Question", "findings": "findings", "evidence_request_ids": ["req-1"], "uncertainty": "", "started_at": "2026-10-31T10:00:00+09:00", "completed_at": "2026-10-31T10:05:00+09:00"}
         evidence = {"success": {"event": "request_complete", "requestId": "req-1", "status": 200, "durationMs": 12}}
     else:
         first = {"stopReason": "tool_use", "output": {"message": {"content": [{

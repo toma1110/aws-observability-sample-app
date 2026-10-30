@@ -21,6 +21,7 @@ MAX_SMOKE_CALLS = 2
 TOTAL_CALL_BUDGET = MAX_MAIN_CALLS + MAX_SMOKE_CALLS
 MAX_OUTPUT_TOKENS = 350
 MAX_EVIDENCE_BYTES = 64 * 1024
+HYPOTHETICAL_QUERY = "このJSONログに直接記録されている結果と処理時間は何ですか。ログだけで障害の原因、影響範囲、顧客への影響を確定できますか。観測事実と分からないことを分けて答えてください。"
 TOOL_NAME = "search_run_logs"
 SMOKE_TOOL_NAME = "search_synthetic_log"
 
@@ -103,7 +104,7 @@ def load_human_record(path: Path = HUMAN_RECORD_PATH) -> tuple[dict, int]:
     if resolved != HUMAN_RECORD_PATH.resolve():
         raise ValueError("Human record must be consumer-local human-investigation.json")
     human = json.loads(resolved.read_text(encoding="utf-8"))
-    required = {"request_id", "query", "started_at", "completed_at", "findings", "evidence_request_ids", "uncertainty"}
+    required = {"provenance", "request_id", "query", "started_at", "completed_at", "findings", "evidence_request_ids", "uncertainty", "illustrative_duration"}
     if not isinstance(human, dict) or set(human) != required:
         raise ValueError("Copy human-investigation.template.json and fill each field")
     if not isinstance(human["request_id"], str) or not human["request_id"].strip() or not isinstance(human["query"], str) or not human["query"].strip():
@@ -112,12 +113,27 @@ def load_human_record(path: Path = HUMAN_RECORD_PATH) -> tuple[dict, int]:
         raise ValueError("Record your actual findings and any uncertainty before AI comparison")
     if not isinstance(human["evidence_request_ids"], list) or not human["evidence_request_ids"]:
         raise ValueError("Record the requestId(s) you actually checked before AI comparison")
-    start = _timestamp(human["started_at"], "started_at")
-    end = _timestamp(human["completed_at"], "completed_at")
-    duration_ms = int((end - start).total_seconds() * 1000)
-    if duration_ms <= 0 or duration_ms > 12 * 60 * 60 * 1000:
-        raise ValueError("Recorded investigation times must be ordered and within 12 hours")
-    entries = load_evidence()
+    if human["provenance"] == "actual":
+        if human["illustrative_duration"] is not None:
+            raise ValueError("Actual records cannot include an illustrative duration")
+        start = _timestamp(human["started_at"], "started_at")
+        end = _timestamp(human["completed_at"], "completed_at")
+        duration_ms = int((end - start).total_seconds() * 1000)
+        if duration_ms <= 0 or duration_ms > 12 * 60 * 60 * 1000:
+            raise ValueError("Recorded investigation times must be ordered and within 12 hours")
+    elif human["provenance"] == "hypothetical":
+        if human["query"] != HYPOTHETICAL_QUERY:
+            raise ValueError("Hypothetical teaching example must use the fixed Issue 289 question")
+        if human["started_at"] is not None or human["completed_at"] is not None:
+            raise ValueError("Hypothetical examples must use null timestamps; do not invent measured times")
+        if not human["findings"].startswith("【教材用の想定例】"):
+            raise ValueError("Hypothetical findings must be labeled as a teaching example")
+        if not isinstance(human["illustrative_duration"], str) or not human["illustrative_duration"].startswith("【教材用の想定】"):
+            raise ValueError("Hypothetical duration must be explicitly labeled as an illustrative example")
+        duration_ms = None
+    else:
+        raise ValueError("provenance must be actual or hypothetical")
+    entries = load_evidence(EVIDENCE_PATH)
     matching = [entry for entry in entries.values() if entry["requestId"] == human["request_id"]]
     if len(matching) != 1:
         raise ValueError("The selected requestId must match exactly one log in the current run-evidence.txt")
@@ -251,6 +267,8 @@ def run_investigation(client, human: dict, evidence: dict[str, dict], call_budge
         "status": "in_progress",
         "model_id": MODEL_ID,
         "request_id": request_id,
+        "baseline_provenance": human["provenance"],
+        "human_investigation_duration_ms": None,
         "query": human["query"],
         "api_timing_ms": {},
         "first_response_usage": {},
@@ -287,12 +305,18 @@ def run_investigation(client, human: dict, evidence: dict[str, dict], call_budge
     call_budget("main", request_id=request_id)
     result.update({
         "human_baseline": {
+            "provenance": human["provenance"],
+            "illustrative_duration": human["illustrative_duration"],
             "findings": human["findings"],
             "evidence_request_ids": human["evidence_request_ids"],
             "uncertainty": human["uncertainty"],
         },
         "tool_result": found,
     })
+    if human["provenance"] == "actual":
+        start = _timestamp(human["started_at"], "started_at")
+        end = _timestamp(human["completed_at"], "completed_at")
+        result["human_investigation_duration_ms"] = int((end - start).total_seconds() * 1000)
     _write_result(output_path, result)
     try:
         final = client.converse(
@@ -322,7 +346,11 @@ def run_investigation(client, human: dict, evidence: dict[str, dict], call_budge
             "first_request_and_tool_ms": round((after_tool - before) * 1000, 1),
             "final_request_ms": round((time.perf_counter() - after_tool) * 1000, 1),
         },
-        "note": "Human time is self-recorded in the human-first source; AI review time must be recorded separately by a person.",
+        "note": (
+            "Hypothetical teaching baseline; no human investigation duration is measured and no time-saving comparison is supported."
+            if human["provenance"] == "hypothetical"
+            else "Human time is self-recorded in the human-first source; AI review time must be recorded separately by a person."
+        ),
     })
     _write_result(output_path, result)
     return result

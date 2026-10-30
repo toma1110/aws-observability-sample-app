@@ -1,0 +1,11 @@
+{
+  "provenance": "hypothetical",
+  "request_id": "bae80c98-ccb8-4ca8-9b13-794a93ed7ca8",
+  "query": "このJSONログに直接記録されている結果と処理時間は何ですか。ログだけで障害の原因、影響範囲、顧客への影響を確定できますか。観測事実と分からないことを分けて答えてください。",
+  "started_at": null,
+  "completed_at": null,
+  "findings": "【教材用の想定例】statusは500、durationMsは0.07、errorはRuntimeError。ログだけでは原因、影響範囲、顧客への影響を確定できない。",
+  "evidence_request_ids": ["bae80c98-ccb8-4ca8-9b13-794a93ed7ca8"],
+  "uncertainty": "【教材用の想定例】原因となった処理、再現条件、他のリクエストへの影響は未確認。",
+  "illustrative_duration": "【教材用の想定】3分程度（実測ではなく、短縮率比較には使わない）"
+}
