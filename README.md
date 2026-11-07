@@ -86,12 +86,12 @@ Function URL側にリソースポリシーは追加しません。
 ## 3. アプリを取得する
 
 以下のコマンドをCloudShellで実行します。
-`v1.0.2`は、この手順で使うアプリの版を指定するタグです。
+`v1.0.3`は、不信頼入力シナリオを含むこの手順の固定版タグです。
 
 ```bash
 export AWS_REGION=ap-northeast-1
-git clone --branch v1.0.2 --depth 1 https://github.com/toma1110/aws-observability-sample-app.git
-cd aws-observability-sample-app
+git clone --branch v1.0.3 --depth 1 https://github.com/toma1110/aws-observability-sample-app.git aws-observability-sample-app-v1.0.3
+cd aws-observability-sample-app-v1.0.3
 aws sts get-caller-identity
 printf '%s\n' "$AWS_REGION"
 ```
@@ -110,6 +110,7 @@ printf '%s\n' "$AWS_REGION"
 `learner1`は自分用の文字列へ置き換えてください。
 同じアカウントを複数人で使う場合は、名前が重ならないようにします。
 名前は英字で始まる3〜31文字で、英数字とハイフンを使えます。
+v1.0.2でこの演習のスタックを作成済みの場合は、そのときと同じ`STACK_NAME`を指定して同じスタックを更新します。旧版のディレクトリと保存済みの実行結果は保持されます。
 
 ```bash
 export STACK_NAME=observability-sample-learner1
@@ -164,14 +165,24 @@ printf '%s\n' "$FUNCTION_URL"
 この後も同じCloudShellターミナルで操作し、`AWS_REGION`、`STACK_NAME`、`FUNCTION_URL`を保持します。
 認証には、CloudShellで操作中のユーザーやロールが使われます。
 
-## 5. 4種類の注文を実行する
+## 5. シナリオを選んで実行する
 
-次のコマンドは4種類の注文を各1回送信します。
-入力内容、HTTP応答、対応するCloudWatch Logsのログを順に表示します。
-`tee`は、画面の出力を`run-evidence.txt`にも保存するコマンドです。
+以下のどちらか一方を実行してください。入力内容、HTTP応答、対応するCloudWatch Logsのログを順に表示します。
+
+### 初めて5種類すべてを確認する場合
+
+4種類の注文と、固定された不信頼入力シナリオを各1回送信します。
 
 ```bash
-python3 run_scenarios.py "$FUNCTION_URL" | tee run-evidence.txt
+python3 run_scenarios.py "$FUNCTION_URL" | tee run-evidence-v1.0.3-all.txt
+```
+
+### 旧版で4種類を保存済みで、追加分だけ確認する場合
+
+v1.0.2の4種類の実行結果を保存済みなら、上のコマンドは実行しないでください。まずv1.0.3のアプリを取得し、「4. AWSにデプロイする」を完了して更新を確認します。その後、次のコマンドを1回だけ実行してください。固定の入力を含むHTTP POSTを1回だけ送り、4種類の注文は再送しません。結果は旧版の証跡を上書きしない別ファイルに保存されます。
+
+```bash
+python3 run_scenarios.py "$FUNCTION_URL" untrusted_input | tee run-evidence-v1.0.3-untrusted.txt
 ```
 
 ### 期待する結果
@@ -185,6 +196,7 @@ HTTPステータスは、処理結果を表す番号です。
 | `validation` | 数量を0にして注文する | `400` | `error`が`validation_error` |
 | `injected_failure` | 意図的に処理エラーを起こす | `500` | `error`が`internal_error` |
 | `bounded_delay` | 1.5秒待って青いペンを2本注文する | `200` | `delayMs`が1500、`total`が500 |
+| `untrusted_input` | 固定された不信頼文字列をログへ記録する | `200` | 応答とログの`requestId`が一致し、ログに`untrustedInput`がある |
 
 商品コード`sku`は、赤いノートが`SKU-RED-01`、青いペンが`SKU-BLUE-02`です。
 数量を表す`quantity`には、1〜10の整数を指定します。
@@ -193,6 +205,11 @@ HTTPステータスは、処理結果を表す番号です。
 Lambdaサービス自体の障害を示すものではありません。
 `bounded_delay`は、注文処理の前に意図的な待ち時間を入れます。
 アプリが受け付ける待ち時間の上限は3000ミリ秒です。
+
+`untrusted_input`は、この演習に含まれる固定の例文を1件だけ記録します。
+任意の文字列、配列、複数件の入力には対応しません。アプリは160文字を超える値と制御文字を拒否し、固定例文と一致した場合だけ`request_complete`ログへ記録します。
+応答本文には例文を含めません。例文は命令として実行されず、ログを読む練習用データです。
+このシナリオへ個人情報、パスワード、credential、実在する秘密情報を入力しないでください。
 
 ## 6. 応答とログを読み比べる
 
@@ -213,7 +230,7 @@ HTTP応答とログで同じIDを探すと、どの注文の記録かを確認�
 ### ログの項目を確認する
 
 次は、ログの形式を説明するための例です。実行結果ではありません。
-自分の結果は、画面または`run-evidence.txt`で確認してください。
+自分の結果は、画面または実行方法に応じた`run-evidence-v1.0.3-all.txt`か`run-evidence-v1.0.3-untrusted.txt`で確認してください。
 
 ```json
 {
@@ -239,7 +256,7 @@ HTTP応答とログで同じIDを探すと、どの注文の記録かを確認�
 
 `durationMs`には、入力検証などのアプリの処理を含みます。
 Lambdaの初期化時間は含まず、課金対象時間や`REPORT`行の処理時間とも異なります。
-エラー時のログにはエラーの種類を記録し、注文本文や秘密情報は記録しません。
+通常の注文ではログに本文を記録しません。`untrusted_input`だけは上記の固定練習文を`untrustedInput`として記録します。エラー時のログにはエラーの種類を記録します。
 
 ### 自分で注文を1件送る場合
 
@@ -272,7 +289,7 @@ Lambdaが出力する`START`・`END`・`REPORT`行も表示されます。
 
 ログを後の学習に使う場合は、必要なファイルを先に保存してください。
 スタックを削除すると、CloudWatch Logsに保存したログも削除されます。
-CloudShellの`run-evidence.txt`などのファイルは残ります。
+CloudShellにある`run-evidence-v1.0.3-all.txt`や`run-evidence-v1.0.3-untrusted.txt`などの実行結果ファイルは、スタック削除後も残ります。
 
 同じCloudShellターミナルで、演習用のスタック名を確認してから削除します。
 
