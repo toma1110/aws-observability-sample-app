@@ -88,19 +88,21 @@ Function URL側にリソースポリシーは追加しません。
 以下のコマンドをCloudShellで実行します。
 `v1.0.2`は、この手順で使うアプリの版を指定するタグです。
 
+CloudShellを開き、次のブロックをまとめて実行します。毎回ホームの下に新しい演習フォルダを作るので、以前の作業は残ります。
+
 ```bash
 export AWS_REGION=ap-northeast-1
-git clone --branch v1.0.2 --depth 1 https://github.com/toma1110/aws-observability-sample-app.git
-cd aws-observability-sample-app
-aws sts get-caller-identity
-printf '%s\n' "$AWS_REGION"
+workdir=$(mktemp -d "$HOME/observability-v1.0.2-XXXXXX") &&
+  git clone --branch v1.0.2 --depth 1 https://github.com/toma1110/aws-observability-sample-app.git "$workdir" &&
+  cd "$workdir" &&
+  ls -l ./deploy.sh &&
+  aws sts get-caller-identity &&
+  printf 'リージョン: %s\n作業フォルダ: %s\n' "$AWS_REGION" "$PWD"
 ```
 
-`get-caller-identity`の`Account`と`Arn`で、演習用のアカウントとユーザー・ロールを確認します。
-最後のコマンドでは、この演習で使う環境変数`AWS_REGION`の値を表示します。
-この手順のコマンドは、環境変数`AWS_REGION`に指定した東京リージョンで実行します。
+最後に東京リージョン（`ap-northeast-1`）と作業フォルダのパスが表示され、`Account` と `Arn` が演習用のものであることを確認してください。パスは再開時に使うので控えておきます。途中でエラーが出たら、その行で準備は止まっています。
 
-アカウントやリージョンが演習対象と違う場合は、設定を確認してから進めてください。
+次の手順は同じCloudShellで続けます。開き直した場合は、`cd` の後に控えたパスを指定し、`ls -l ./deploy.sh` でファイルが表示されることを確認してください。リージョンも `export AWS_REGION=ap-northeast-1` で設定し直します。
 
 ## 4. AWSにデプロイする
 
